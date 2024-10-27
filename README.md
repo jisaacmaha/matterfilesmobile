@@ -1,50 +1,106 @@
-# Welcome to your Expo app 👋
+# Matter Style Files Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A React Native mobile application built with Expo that enables Matter employees to scan QR codes and upload style files directly from their mobile devices. This app streamlines the process of uploading style files by allowing users to capture and submit files immediately after scanning a valid QR code.
 
-## Get started
+## Features
 
-1. Install dependencies
+- QR Code scanning with real-time validation
+- Secure file upload system
+- Integration with Matter's backend services
+- Clean, intuitive user interface
+- Real-time upload status feedback
+- Error handling and validation
+- Automatic navigation flow
 
-   ```bash
-   npm install
-   ```
+## Technical Stack
 
-2. Start the app
+- **Framework**: React Native with Expo
+- **Navigation**: Expo Router (file-based)
+- **Camera**: expo-camera
+- **Styling**: Custom themed components
+- **State Management**: React hooks
+- **Network**: Fetch API for uploads
 
-   ```bash
-    npx expo start
-   ```
+## Project Structure
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+app/
+├── (tabs)/
+│   └── index.tsx      # Home screen
+├── scanner.tsx        # QR code scanner
+├── upload.tsx         # File upload screen
+├── _layout.tsx        # Navigation layout
+└── styles/
+    └── theme.ts       # Theme configuration
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Setup Instructions
 
-## Learn more
+1. Install dependencies:
+```bash
+npm install
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+2. Start the development server:
+```bash
+npx expo start
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+3. Run on your device:
+   - Scan QR code with Expo Go app (iOS/Android)
+   - Press 'i' for iOS simulator
+   - Press 'a' for Android emulator
 
-## Join the community
+## Development Flow
 
-Join our community of developers creating universal apps.
+1. **Home Screen (`app/(tabs)/index.tsx`)**
+   - Entry point for the app
+   - Contains the scan QR code button
+   - Handles navigation to scanner
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+2. **Scanner Screen (`app/scanner.tsx`)**
+   - Manages camera permissions
+   - Validates QR code format
+   - Extracts style ID and unique identifier
+   - Navigates to upload on successful scan
+
+3. **Upload Screen (`app/upload.tsx`)**
+   - Handles file selection
+   - Manages upload process
+   - Provides feedback on upload status
+   - Returns to home on completion
+
+## API Integration
+
+The app expects QR codes in the following format:
+```
+http://[server-url]/mobile-upload/[style-id]/[unique-id]
+```
+
+Upload endpoint:
+```
+POST http://[server-url]/api/mobile-upload
+Content-Type: multipart/form-data
+
+{
+  image: [file],
+  styleId: [string],
+  uniqueId: [string]
+}
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## Support
+
+For internal support, contact the Matter development team.
+
+## License
+
+This project is private and proprietary to Matter.
