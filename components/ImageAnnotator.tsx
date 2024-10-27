@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Modal, StyleSheet, TouchableOpacity, TextInput, Alert, PanResponder, GestureResponderEvent, Animated, Image } from 'react-native';
-import Svg, { Path, Text as SvgText, Line, Rect } from 'react-native-svg';
+import Svg, { Path, Text as SvgText, Line, Rect, Circle } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme } from '@/app/styles/theme';
 import { ThemedText } from './ThemedText';
@@ -99,9 +99,33 @@ const getTextRotationAndPosition = (start: Point, end: Point) => {
   return { angle, midX, midY };
 };
 
+// Add to your types
+type ComparisonMeasurement = {
+  id: string;
+  start: Point;
+  end: Point;
+  currentMeasurement: string;
+  targetMeasurement: string;
+};
+
+interface SelectedItem {
+  type: 'text' | 'icon' | 'rectangle' | 'measurement' | null
+  id: string | null
+  initialPosition: Point | null
+}
+
+// Add to the isComparisonTouched helper function
+const isComparisonTouched = (point: Point, comparison: ComparisonMeasurement) => {
+  const hitArea = 30; // Increased hit area
+  return point.x >= Math.min(comparison.start.x, comparison.end.x) - hitArea &&
+         point.x <= Math.max(comparison.start.x, comparison.end.x) + hitArea &&
+         point.y >= Math.min(comparison.start.y, comparison.end.y) - hitArea &&
+         point.y <= Math.max(comparison.start.y, comparison.end.y) + hitArea;
+};
+
 export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnnotations }: Props) {
   // State
-  const [mode, setMode] = useState<'draw' | 'text' | 'tick' | 'cross' | 'rectangle' | 'measure' | 'select' | 'delete'>('draw');
+  const [mode, setMode] = useState<'draw' | 'text' | 'tick' | 'cross' | 'rectangle' | 'measure' | 'select' | 'delete' | 'compare'>('draw');
   const [paths, setPaths] = useState<DrawPath[]>(initialAnnotations?.paths || []);
   const [texts, setTexts] = useState<TextAnnotation[]>(initialAnnotations?.texts || []);
   const [icons, setIcons] = useState<IconAnnotation[]>(initialAnnotations?.icons || []);
@@ -118,34 +142,184 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
   const [selectedAnnotation, setSelectedAnnotation] = useState<SelectedAnnotation | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [undoStack, setUndoStack] = useState<AnnotationData[]>([]);
+  const [showComparisonInput, setShowComparisonInput] = useState(false);
+  const [currentComparisonInput, setCurrentComparisonInput] = useState('');
+  const [targetComparisonInput, setTargetComparisonInput] = useState('');
+  const [currentComparison, setCurrentComparison] = useState<ComparisonMeasurement | null>(null);
+  const [comparisons, setComparisons] = useState<ComparisonMeasurement[]>([]);
+  const [selectedItem, setSelectedItem] = useState<SelectedItem>({
+    type: null,
+    id: null,
+    initialPosition: null
+  });
 
   // Pan responder setup
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: (evt) => {
-      if (mode === 'delete') {
-        const { locationX, locationY } = evt.nativeEvent;
-        handleDeletion({ x: locationX, y: locationY });
-      } else {
-        handleTouchStart(evt);
-      }
-    },
-    onPanResponderMove: (evt, gestureState) => {
-      if (mode === 'select') {
-        handleMove(gestureState);
-      } else {
-        handleTouchMove(evt);
-      }
-    },
-    onPanResponderRelease: () => {
-      if (mode === 'select') {
-        setSelectedAnnotation(null);
-      } else {
-        handleTouchEnd();
-      }
-    },
-  });
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (evt, gestureState) => {
+          const { locationX, locationY } = evt.nativeEvent;
+          const point = { x: locationX, y: locationY };
+
+          if (mode === 'draw') {
+            setCurrentPath({
+              id: Date.now().toString(),
+              points: [point],
+              color: DEFAULT_COLOR,
+            });
+          } else if (mode === 'rectangle') {
+            setCurrentRect({
+              id: Date.now().toString(),
+              start: point,
+              end: point,
+              color: DEFAULT_COLOR,
+            });
+          } else if (mode === 'measure') {
+            setCurrentMeasurement({
+              id: Date.now().toString(),
+              start: point,
+              end: point,
+              measurement: '',
+            });
+          } else if (mode === 'compare') {
+            setCurrentComparison({
+              id: Date.now().toString(),
+              start: point,
+              end: point,
+              currentMeasurement: '',
+              targetMeasurement: '',
+            });
+          } else if (mode === 'text') {
+            setTextPosition(point);
+            setShowTextInput(true);
+          } else if (mode === 'tick') {
+            setIcons(prev => [...prev, {
+              id: Date.now().toString(),
+              type: 'tick',
+              position: point
+            }]);
+            setHasUnsavedChanges(true);
+          } else if (mode === 'cross') {
+            setIcons(prev => [...prev, {
+              id: Date.now().toString(),
+              type: 'cross',
+              position: point
+            }]);
+            setHasUnsavedChanges(true);
+          } else if (mode === 'select') {
+            handleSelection(evt);
+          }
+        },
+        onPanResponderMove: (evt, gestureState) => {
+          const { locationX, locationY } = evt.nativeEvent;
+          const point = { x: locationX, y: locationY };
+
+          if (mode === 'select' && selectedItem.id && selectedItem.initialPosition) {
+            const dx = locationX - selectedItem.initialPosition.x;
+            const dy = locationY - selectedItem.initialPosition.y;
+
+            switch (selectedItem.type) {
+              case 'text':
+                setTexts(prev => prev.map(text =>
+                  text.id === selectedItem.id
+                    ? { ...text, position: { x: text.position.x + dx, y: text.position.y + dy } }
+                    : text
+                ));
+                break;
+              case 'icon':
+                setIcons(prev => prev.map(icon =>
+                  icon.id === selectedItem.id
+                    ? { ...icon, position: { x: icon.position.x + dx, y: icon.position.y + dy } }
+                    : icon
+                ));
+                break;
+              case 'rectangle':
+                setRectangles(prev => prev.map(rect =>
+                  rect.id === selectedItem.id
+                    ? {
+                        ...rect,
+                        start: { x: rect.start.x + dx, y: rect.start.y + dy },
+                        end: { x: rect.end.x + dx, y: rect.end.y + dy }
+                      }
+                    : rect
+                ));
+                break;
+              case 'measurement':
+                setMeasurements(prev => prev.map(measurement =>
+                  measurement.id === selectedItem.id
+                    ? {
+                        ...measurement,
+                        start: { x: measurement.start.x + dx, y: measurement.start.y + dy },
+                        end: { x: measurement.end.x + dx, y: measurement.end.y + dy }
+                      }
+                    : measurement
+                ));
+                break;
+              case 'comparison':
+                setComparisons(prev => prev.map(comparison =>
+                  comparison.id === selectedItem.id
+                    ? {
+                        ...comparison,
+                        start: { x: comparison.start.x + dx, y: comparison.start.y + dy },
+                        end: { x: comparison.end.x + dx, y: comparison.end.y + dy }
+                      }
+                    : comparison
+                ));
+                break;
+            }
+            
+            // Update the initial position for the next move
+            setSelectedItem(prev => ({
+              ...prev,
+              initialPosition: point
+            }));
+            setHasUnsavedChanges(true);
+          } else if (mode === 'draw' && currentPath) {
+            setCurrentPath({
+              ...currentPath,
+              points: [...currentPath.points, point],
+            });
+          } else if (mode === 'rectangle' && currentRect) {
+            setCurrentRect({
+              ...currentRect,
+              end: point,
+            });
+          } else if (mode === 'measure' && currentMeasurement) {
+            setCurrentMeasurement({
+              ...currentMeasurement,
+              end: point,
+            });
+          } else if (mode === 'compare' && currentComparison) {
+            setCurrentComparison({
+              ...currentComparison,
+              end: point,
+            });
+          }
+        },
+        onPanResponderRelease: (evt, gestureState) => {
+          if (mode === 'draw' && currentPath) {
+            setPaths([...paths, currentPath]);
+            setCurrentPath(null);
+            setHasUnsavedChanges(true);
+          } else if (mode === 'rectangle' && currentRect) {
+            setRectangles([...rectangles, currentRect]);
+            setCurrentRect(null);
+            setHasUnsavedChanges(true);
+          } else if (mode === 'measure' && currentMeasurement) {
+            setShowMeasurementInput(true);
+            setHasUnsavedChanges(true);
+          } else if (mode === 'compare' && currentComparison) {
+            setShowComparisonInput(true);
+            setHasUnsavedChanges(true);
+          } else if (mode === 'select') {
+            setSelectedItem({ type: null, id: null, initialPosition: null });
+          }
+        },
+      }),
+    [mode, currentPath, currentRect, currentMeasurement, currentComparison, paths, rectangles, selectedItem, texts, icons, measurements]
+  );
 
   // Touch handlers
   const handleTouchStart = (event: GestureResponderEvent) => {
@@ -233,32 +407,59 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
     // Check texts
     const touchedText = texts.find(t => isTextTouched(point, t));
     if (touchedText) {
-      setSelectedAnnotation({ type: 'text', id: touchedText.id });
+      setSelectedItem({
+        type: 'text',
+        id: touchedText.id,
+        initialPosition: { ...point }
+      });
       return;
     }
 
     // Check icons
     const touchedIcon = icons.find(i => isIconTouched(point, i));
     if (touchedIcon) {
-      setSelectedAnnotation({ type: 'icon', id: touchedIcon.id });
+      setSelectedItem({
+        type: 'icon',
+        id: touchedIcon.id,
+        initialPosition: { ...point }
+      });
       return;
     }
 
     // Check rectangles
     const touchedRect = rectangles.find(r => isRectangleTouched(point, r));
     if (touchedRect) {
-      setSelectedAnnotation({ type: 'rectangle', id: touchedRect.id });
+      setSelectedItem({
+        type: 'rectangle',
+        id: touchedRect.id,
+        initialPosition: { ...point }
+      });
       return;
     }
 
     // Check measurements
     const touchedMeasurement = measurements.find(m => isMeasurementTouched(point, m));
     if (touchedMeasurement) {
-      setSelectedAnnotation({ type: 'measurement', id: touchedMeasurement.id });
+      setSelectedItem({
+        type: 'measurement',
+        id: touchedMeasurement.id,
+        initialPosition: { ...point }
+      });
       return;
     }
 
-    setSelectedAnnotation(null);
+    // Add check for comparisons
+    const touchedComparison = comparisons.find(c => isComparisonTouched(point, c));
+    if (touchedComparison) {
+      setSelectedItem({
+        type: 'comparison',
+        id: touchedComparison.id,
+        initialPosition: { ...point }
+      });
+      return;
+    }
+
+    setSelectedItem({ type: null, id: null, initialPosition: null });
   };
 
   const handleMove = (gestureState: any) => {
@@ -434,6 +635,22 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
     }
   };
 
+  // Add this function to handle clearing all annotations
+  const handleClearAll = () => {
+    // Save current state to undo stack before clearing
+    saveToUndoStack();
+    
+    // Clear all annotations
+    setPaths([]);
+    setTexts([]);
+    setIcons([]);
+    setRectangles([]);
+    setMeasurements([]);
+    
+    // Set unsaved changes flag
+    setHasUnsavedChanges(true);
+  };
+
   // Render method
   return (
     <Modal visible={visible} animationType="slide">
@@ -446,6 +663,54 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
           >
             <ThemedText style={styles.headerButtonText}>Cancel</ThemedText>
           </TouchableOpacity>
+
+          <View style={styles.headerControls}>
+            <TouchableOpacity
+              style={[styles.headerTool, mode === 'select' && styles.activeTool]}
+              onPress={() => setMode('select')}
+            >
+              <Ionicons name="move" size={24} color={mode === 'select' ? theme.colors.primary : theme.colors.text} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerTool}
+              onPress={handleUndo}
+              disabled={undoStack.length === 0}
+            >
+              <Ionicons 
+                name="arrow-undo" 
+                size={24} 
+                color={undoStack.length === 0 ? theme.colors.textSecondary : theme.colors.text} 
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerTool}
+              onPress={() => {
+                Alert.alert(
+                  'Clear All',
+                  'Are you sure you want to clear all annotations?',
+                  [
+                    {
+                      text: 'Cancel',
+                      style: 'cancel',
+                    },
+                    {
+                      text: 'Clear All',
+                      onPress: handleClearAll,
+                      style: 'destructive',
+                    },
+                  ]
+                );
+              }}
+            >
+              <Ionicons 
+                name="trash" 
+                size={24} 
+                color={theme.colors.error}
+              />
+            </TouchableOpacity>
+          </View>
           
           <TouchableOpacity 
             style={[
@@ -493,22 +758,22 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
               />
             )}
 
-            {/* Text annotations */}
+            {/* Text annotations - remove selection stroke */}
             {texts.map((text, index) => (
               <React.Fragment key={index}>
                 <Rect
-                  x={text.position.x - 40}
+                  x={text.position.x - (text.text.length * 4.5)}
                   y={text.position.y - 15}
-                  width={80}
+                  width={text.text.length * 9}
                   height={30}
-                  fill="#F5F5F5" // Explicit light grey color
-                  rx={5}
-                  ry={5}
+                  fill="#F5F5F5"
+                  rx={15}
+                  ry={15}
                 />
                 <SvgText
                   x={text.position.x}
                   y={text.position.y + 5}
-                  fill="#000000" // Explicit black color
+                  fill="#000000"
                   fontSize="16"
                   textAnchor="middle"
                 >
@@ -517,21 +782,22 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
               </React.Fragment>
             ))}
 
-            {/* Icons */}
+            {/* Icons - remove selection circle */}
             {icons.map((icon, index) => (
-              <SvgText
-                key={index}
-                x={icon.position.x}
-                y={icon.position.y}
-                fill={icon.type === 'tick' ? '#22C55E' : '#EF4444'} // Explicit green and red colors
-                fontSize="40"
-                textAnchor="middle"
-              >
-                {icon.type === 'tick' ? '✓' : '✕'}
-              </SvgText>
+              <React.Fragment key={index}>
+                <SvgText
+                  x={icon.position.x}
+                  y={icon.position.y}
+                  fill={icon.type === 'tick' ? '#22C55E' : '#EF4444'}
+                  fontSize="40"
+                  textAnchor="middle"
+                >
+                  {icon.type === 'tick' ? '✓' : '✕'}
+                </SvgText>
+              </React.Fragment>
             ))}
 
-            {/* Rectangles */}
+            {/* Rectangles - no changes needed as they don't have selection indicators */}
             {rectangles.map((rect, index) => (
               <Rect
                 key={index}
@@ -696,6 +962,112 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
                 })()}
               </React.Fragment>
             ))}
+
+            {/* Comparison Measurements */}
+            {comparisons.map((comparison, index) => (
+              <React.Fragment key={index}>
+                {/* Main line */}
+                <Line
+                  x1={comparison.start.x}
+                  y1={comparison.start.y}
+                  x2={comparison.end.x}
+                  y2={comparison.end.y}
+                  stroke={DEFAULT_COLOR}
+                  strokeWidth={2}
+                />
+                {/* Perpendicular lines */}
+                {(() => {
+                  const startPerp = getPerpendicularPoints(comparison.start, comparison.end);
+                  const endPerp = getPerpendicularPoints(comparison.end, comparison.start);
+                  return (
+                    <>
+                      <Line
+                        x1={startPerp.x1}
+                        y1={startPerp.y1}
+                        x2={startPerp.x2}
+                        y2={startPerp.y2}
+                        stroke={DEFAULT_COLOR}
+                        strokeWidth={2}
+                      />
+                      <Line
+                        x1={endPerp.x1}
+                        y1={endPerp.y1}
+                        x2={endPerp.x2}
+                        y2={endPerp.y2}
+                        stroke={DEFAULT_COLOR}
+                        strokeWidth={2}
+                      />
+                    </>
+                  );
+                })()}
+                {/* Rotated text with background */}
+                {(() => {
+                  const { angle, midX, midY } = getTextRotationAndPosition(comparison.start, comparison.end);
+                  return (
+                    <>
+                      <Rect
+                        x={midX - 40}
+                        y={midY - 10}
+                        width={80}
+                        height={20}
+                        fill="#F5F5F5"
+                        rx={10}
+                        ry={10}
+                        transform={`rotate(${angle} ${midX} ${midY})`}
+                      />
+                      <SvgText
+                        x={midX}
+                        y={midY + 4}
+                        fill="#000000"
+                        fontSize="12"
+                        textAnchor="middle"
+                        transform={`rotate(${angle} ${midX} ${midY})`}
+                      >
+                        {`${comparison.currentMeasurement}→${comparison.targetMeasurement}`}
+                      </SvgText>
+                    </>
+                  );
+                })()}
+              </React.Fragment>
+            ))}
+
+            {/* Current comparison being drawn */}
+            {currentComparison && (
+              <>
+                <Line
+                  x1={currentComparison.start.x}
+                  y1={currentComparison.start.y}
+                  x2={currentComparison.end.x}
+                  y2={currentComparison.end.y}
+                  stroke={DEFAULT_COLOR}
+                  strokeWidth={2}
+                />
+                {(() => {
+                  const startPerp = getPerpendicularPoints(currentComparison.start, currentComparison.end);
+                  const endPerp = getPerpendicularPoints(currentComparison.end, currentComparison.start);
+                  return (
+                    <>
+                      <Line
+                        x1={startPerp.x1}
+                        y1={startPerp.y1}
+                        x2={startPerp.x2}
+                        y2={startPerp.y2}
+                        stroke={DEFAULT_COLOR}
+                        strokeWidth={2}
+                      />
+                      <Line
+                        x1={endPerp.x1}
+                        y1={endPerp.y1}
+                        x2={endPerp.x2}
+                        y2={endPerp.y2}
+                        stroke={DEFAULT_COLOR}
+                        strokeWidth={2}
+                      />
+                    </>
+                  );
+                })()}
+              </>
+            )}
           </Svg>
 
           {/* Text Input Modal */}
@@ -784,9 +1156,69 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
               </View>
             </View>
           )}
+
+          {/* Comparison Input Modal */}
+          {showComparisonInput && (
+            <View style={styles.measurementInputContainer}>
+              <View style={styles.comparisonInputs}>
+                <TextInput
+                  style={[styles.textInput, styles.comparisonInput]}
+                  value={currentComparisonInput}
+                  onChangeText={setCurrentComparisonInput}
+                  placeholder="Current measurement..."
+                  placeholderTextColor={theme.colors.textSecondary}
+                  keyboardType="numeric"
+                  autoFocus
+                />
+                <View style={styles.comparisonArrowContainer}>
+                  <ThemedText style={styles.comparisonArrow}>→</ThemedText>
+                </View>
+                <TextInput
+                  style={[styles.textInput, styles.comparisonInput]}
+                  value={targetComparisonInput}
+                  onChangeText={setTargetComparisonInput}
+                  placeholder="Target measurement..."
+                  placeholderTextColor={theme.colors.textSecondary}
+                  keyboardType="numeric"
+                />
+              </View>
+              <View style={styles.inputButtons}>
+                <TouchableOpacity 
+                  style={[styles.inputButton, styles.cancelButton]}
+                  onPress={() => {
+                    setShowComparisonInput(false);
+                    setCurrentComparisonInput('');
+                    setTargetComparisonInput('');
+                    setCurrentComparison(null);
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={24} color={theme.colors.error} />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.inputButton, styles.addButton]}
+                  onPress={() => {
+                    if (currentComparisonInput && targetComparisonInput && currentComparison) {
+                      setComparisons([...comparisons, {
+                        ...currentComparison,
+                        currentMeasurement: currentComparisonInput,
+                        targetMeasurement: targetComparisonInput,
+                      }]);
+                      setCurrentComparisonInput('');
+                      setTargetComparisonInput('');
+                      setShowComparisonInput(false);
+                      setCurrentComparison(null);
+                      setHasUnsavedChanges(true);
+                    }
+                  }}
+                >
+                  <ThemedText>Add</ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
-        {/* Toolbar */}
+        {/* Add back the bottom toolbar with drawing tools */}
         <View style={styles.toolbar}>
           <View style={styles.toolRow}>
             <TouchableOpacity
@@ -800,7 +1232,11 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
               style={[styles.tool, mode === 'text' && styles.activeTool]}
               onPress={() => setMode('text')}
             >
-              <Ionicons name="text" size={24} color={mode === 'text' ? theme.colors.primary : theme.colors.text} />
+              <Ionicons 
+                name="chatbubble-outline" 
+                size={24} 
+                color={mode === 'text' ? theme.colors.primary : theme.colors.text} 
+              />
             </TouchableOpacity>
             
             <TouchableOpacity
@@ -816,9 +1252,7 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
             >
               <Ionicons name="close" size={24} color={mode === 'cross' ? theme.colors.primary : theme.colors.text} />
             </TouchableOpacity>
-          </View>
-          
-          <View style={styles.toolRow}>
+
             <TouchableOpacity
               style={[styles.tool, mode === 'rectangle' && styles.activeTool]}
               onPress={() => setMode('rectangle')}
@@ -830,36 +1264,21 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
               style={[styles.tool, mode === 'measure' && styles.activeTool]}
               onPress={() => setMode('measure')}
             >
-              <Ionicons name="resize" size={24} color={mode === 'measure' ? theme.colors.primary : theme.colors.text} />
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.tool, mode === 'select' && styles.activeTool]}
-              onPress={() => setMode('select')}
-            >
-              <Ionicons name="move" size={24} color={mode === 'select' ? theme.colors.primary : theme.colors.text} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.tool}
-              onPress={handleUndo}
-              disabled={undoStack.length === 0}
-            >
-              <Ionicons 
-                name="arrow-undo" 
+              <MaterialCommunityIcons 
+                name="ruler" 
                 size={24} 
-                color={undoStack.length === 0 ? theme.colors.textSecondary : theme.colors.text} 
+                color={mode === 'measure' ? theme.colors.primary : theme.colors.text} 
               />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.tool, mode === 'delete' && styles.activeTool]}
-              onPress={() => setMode('delete')}
+              style={[styles.tool, mode === 'compare' && styles.activeTool]}
+              onPress={() => setMode('compare')}
             >
-              <Ionicons 
-                name="trash" 
+              <MaterialCommunityIcons 
+                name="ruler-square" 
                 size={24} 
-                color={mode === 'delete' ? theme.colors.primary : theme.colors.text} 
+                color={mode === 'compare' ? theme.colors.primary : theme.colors.text} 
               />
             </TouchableOpacity>
           </View>
@@ -884,6 +1303,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
     backgroundColor: theme.colors.background,
+  },
+  headerControls: {
+    flexDirection: 'row',
+    gap: theme.spacing.md,
+    alignItems: 'center',
+  },
+  headerTool: {
+    padding: theme.spacing.sm,
+    borderRadius: theme.borderRadius.sm,
+  },
+  activeTool: {
+    backgroundColor: theme.colors.surfaceHighlight,
   },
   headerButton: {
     padding: theme.spacing.md,
@@ -916,22 +1347,24 @@ const styles = StyleSheet.create({
   },
   toolbar: {
     padding: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.xl, // Add extra padding at the bottom
     backgroundColor: theme.colors.surface,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
   },
   toolRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: theme.spacing.xs,
   },
   tool: {
     padding: theme.spacing.md,
     borderRadius: theme.borderRadius.md,
-  },
-  activeTool: {
-    backgroundColor: theme.colors.surfaceHighlight,
+    minWidth: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   textInputContainer: {
     position: 'absolute',
@@ -980,5 +1413,21 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     backgroundColor: theme.colors.surface,
+  },
+  comparisonInputs: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  comparisonInput: {
+    flex: 1,
+  },
+  comparisonArrowContainer: {
+    paddingHorizontal: theme.spacing.sm,
+  },
+  comparisonArrow: {
+    fontSize: 20,
+    color: theme.colors.text,
   },
 });
