@@ -1,6 +1,6 @@
 # Matter Style Files Mobile App
 
-A React Native mobile application built with Expo that enables Matter employees to scan QR codes and upload style files directly from their mobile devices. This app streamlines the process of uploading style files by allowing users to capture and submit files immediately after scanning a valid QR code.
+A React Native mobile application built with Expo that enables Matter users to scan QR codes and upload style files directly from their mobile devices. This app streamlines the process of uploading style files by allowing users to capture and submit files immediately after scanning a valid QR code..
 
 ## Features
 
@@ -36,17 +36,21 @@ app/
 
 ## Setup Instructions
 
-1. Install dependencies:
+1. Install the Expo Go app on your mobile device:
+   - [Expo Go for iOS](https://apps.apple.com/app/expo-go/id982107779)
+   - [Expo Go for Android](https://play.google.com/store/apps/details?id=host.exp.exponent)
+
+2. Install dependencies:
 ```bash
 npm install
 ```
 
-2. Start the development server:
+3. Start the development server:
 ```bash
 npx expo start
 ```
 
-3. Run on your device:
+4. Run on your device:
    - Scan QR code with Expo Go app (iOS/Android)
    - Press 'i' for iOS simulator
    - Press 'a' for Android emulator
