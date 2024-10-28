@@ -86,37 +86,21 @@ export default function UploadScreen() {
     setUploading(true);
 
     try {
-      const { styleId, uniqueId, baseUrl } = global.uploadContext;
-      const uploadUrl = `${baseUrl}/api/mobile-upload`;
+      const styleId = await AsyncStorage.getItem('styleId')
+      const accessToken = await AsyncStorage.getItem('accessToken')
+      const baseUrl = await AsyncStorage.getItem('baseUrl')
+      const uploadUrl = `${baseUrl}/api/styles/${styleId}/files`;
       
       const results = await Promise.all(
         images.map(async (image, index) => {
           if (image.uploaded) return null;
 
           const formData = new FormData();
-          formData.append('image', {
+          formData.append('file', {
             uri: image.uri,
             type: 'image/jpeg',
             name: `upload_${index}.jpg`,
           } as any);
-          formData.append('styleId', styleId);
-          formData.append('uniqueId', uniqueId);
-
-          // Add annotations if they exist
-          const storageKey = `annotations_${image.uri}`;
-          const annotations = await AsyncStorage.getItem(storageKey);
-          console.log('Retrieved annotations for upload:', annotations); // Debug log
-          
-          if (annotations) {
-            formData.append('annotations', annotations);
-            console.log('Added annotations to formData:', annotations); // Debug log
-          }
-
-          // Log the entire formData
-          console.log('FormData entries:');
-          for (let [key, value] of formData.entries()) {
-            console.log(key, value);
-          }
 
           const response = await fetch(uploadUrl, {
             method: 'POST',
@@ -124,18 +108,15 @@ export default function UploadScreen() {
             headers: {
               'Accept': 'application/json',
               'Content-Type': 'multipart/form-data',
+              'Authorization': `Bearer ${accessToken}`
             },
           });
 
           if (!response.ok) {
             const errorText = await response.text();
-            console.error('Upload response error:', errorText); // Debug log
+            console.error('Upload response error:', errorText); 
             throw new Error(`Upload failed for image ${index + 1}`);
           }
-
-          // Clean up annotations from storage after successful upload
-          await AsyncStorage.removeItem(storageKey);
-          console.log('Cleaned up annotations for:', storageKey); // Debug log
 
           return index;
         })

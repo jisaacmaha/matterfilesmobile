@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
 import { theme } from './styles/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ScannerScreen() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -19,31 +20,36 @@ export default function ScannerScreen() {
     getCameraPermissions();
   }, []);
 
-  const handleBarCodeScanned = ({ data }: { type: string; data: string }) => {
+  const handleBarCodeScanned = async  ({ data }: { type: string; data: string }) => {
     if (scanned) return;
     
-    try {
-      console.log('QR Code scanned:', data);
-      
+    try {      
       const url = new URL(data);
       const pathParts = url.pathname.split('/');
-      const styleId = pathParts[2];
-      const uniqueId = pathParts[3];
+      const styleId = pathParts[3];
+      const token = url.searchParams.get('token');
 
-      if (styleId && uniqueId) {
+      if (styleId && token) {
+        await AsyncStorage.setItem('styleId', styleId)
+        await AsyncStorage.setItem('accessToken', token);
+        await AsyncStorage.setItem('baseUrl', url.origin)
         setScanned(true);
         global.uploadContext = {
           styleId,
-          uniqueId,
+          token,
           baseUrl: url.origin
         };
         
         router.push('/upload');
+      } else {
+        setScanned(true);
+        alert('Invalid QR Code format');
+        router.push('/');
       }
     } catch (error) {
       console.error('Scanner error:', error);
       alert('Invalid QR Code format');
-      setScanned(false);
+      setScanned(true);
     }
   };
 

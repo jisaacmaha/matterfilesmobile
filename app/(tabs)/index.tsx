@@ -19,12 +19,12 @@ export default function HomeScreen() {
         <ThemedText style={styles.buttonText}>Scan QR Code (in style files</ThemedText>
       </TouchableOpacity>
 
-      <TouchableOpacity 
+      {/* <TouchableOpacity 
         style={[styles.button, styles.secondaryButton]}
         onPress={() => router.push('/upload')}
       >
         <ThemedText style={styles.secondaryButtonText}>Upload Photo</ThemedText>
-      </TouchableOpacity>
+      </TouchableOpacity> */}
     </ThemedView>
   );
 }
