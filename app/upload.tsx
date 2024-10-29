@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Image, TouchableOpacity, Alert, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'expo-camera';
@@ -8,12 +8,16 @@ import { router } from 'expo-router';
 import { theme } from './styles/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { ImageAnnotator } from '@/components/ImageAnnotator';
+import { captureRef } from 'react-native-view-shot';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface ImageAsset {
   uri: string;
   uploaded: boolean;
   hasAnnotations?: boolean;
+  annotations?: AnnotationData;
+  thumbnailUri?: string;
 }
 
 interface AnnotationData {
@@ -29,7 +33,7 @@ const loadSavedAnnotations = async (imageUri: string) => {
   try {
     const storageKey = `annotations_${imageUri}`;
     const savedAnnotations = await AsyncStorage.getItem(storageKey);
-    console.log('Loading saved annotations:', savedAnnotations);
+    // console.log('Loading saved annotations:', savedAnnotations);
     return savedAnnotations ? JSON.parse(savedAnnotations) : null;
   } catch (error) {
     console.error('Error loading annotations:', error);
@@ -43,12 +47,13 @@ export default function UploadScreen() {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [showAnnotator, setShowAnnotator] = useState(false);
   const [loadedAnnotations, setLoadedAnnotations] = useState<AnnotationData | null>(null);
+  const imageAnnotatorRef = useRef<ImageAnnotator>(null);
 
   const pickImages = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true, // Enable multiple selection
-      selectionLimit: 10, // Optional: limit number of selections
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
       quality: 1,
     });
 
@@ -71,6 +76,8 @@ export default function UploadScreen() {
     const result = await ImagePicker.launchCameraAsync({
       quality: 1,
     });
+
+    // console.log('Camera result:', result);
 
     if (!result.canceled) {
       const newImage = {
@@ -97,7 +104,7 @@ export default function UploadScreen() {
 
           const formData = new FormData();
           formData.append('file', {
-            uri: image.uri,
+            uri: (image.annotations && image.annotations.thumbnailUri) ? image.annotations.thumbnailUri : image.uri,
             type: 'image/jpeg',
             name: `upload_${index}.jpg`,
           } as any);
@@ -157,6 +164,8 @@ export default function UploadScreen() {
 
   const handleImagePress = async (index: number) => {
     setSelectedImageIndex(index);
+    // console.log('Selected image index:', index);
+    // console.log('image:', images);
     const annotations = await loadSavedAnnotations(images[index].uri);
     setLoadedAnnotations(annotations);
     setShowAnnotator(true);
@@ -165,7 +174,7 @@ export default function UploadScreen() {
   const handleAnnotatedImage = async (annotations: AnnotationData) => {
     try {
       if (selectedImageIndex !== null) {
-        console.log('Saving annotations:', annotations); // Debug log
+        // console.log('Saving annotations:', annotations);
         
         // Save annotations to AsyncStorage
         const storageKey = `annotations_${images[selectedImageIndex].uri}`;
@@ -176,14 +185,19 @@ export default function UploadScreen() {
 
         // Verify the save worked by reading it back
         const savedAnnotations = await AsyncStorage.getItem(storageKey);
-        console.log('Verified saved annotations:', savedAnnotations); // Debug log
+        // console.log('Verified saved annotations:', savedAnnotations);
 
         // Update local state
         setImages(prev => prev.map((img, idx) => 
           idx === selectedImageIndex 
-            ? { ...img, hasAnnotations: true } 
+            ? { 
+                ...img, 
+                hasAnnotations: true, 
+                annotations: savedAnnotations ? JSON.parse(savedAnnotations) : undefined,
+              } 
             : img
         ));
+        // console.log('Updated images state:', images);
       }
       setShowAnnotator(false);
       setSelectedImageIndex(null);
@@ -199,7 +213,7 @@ export default function UploadScreen() {
       style={styles.imageContainer}
       onPress={() => handleImagePress(index)}
     >
-      <Image source={{ uri: image.uri }} style={styles.imagePreview} />
+      <Image source={{ uri: (image.annotations && image.annotations.thumbnailUri) ? image.annotations.thumbnailUri : image.uri }} style={styles.imagePreview} />
       <TouchableOpacity 
         style={styles.removeButton}
         onPress={() => removeImage(index)}
@@ -402,5 +416,14 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 4,
+  },
+  thumbnailContainer: {
+    height: 100, // Set a height for the thumbnail
+    overflow: 'hidden',
+    marginBottom: theme.spacing.md,
+  },
+  thumbnail: {
+    width: '100%',
+    height: '100%',
   },
 });

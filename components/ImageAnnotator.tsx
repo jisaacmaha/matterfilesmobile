@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Modal, StyleSheet, TouchableOpacity, TextInput, Alert, PanResponder, GestureResponderEvent, Animated, Image } from 'react-native';
 import Svg, { Path, Text as SvgText, Line, Rect, Circle } from 'react-native-svg';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme } from '@/app/styles/theme';
 import { ThemedText } from './ThemedText';
+import { captureRef } from 'react-native-view-shot';
 
 // Interfaces
 interface Point {
@@ -57,6 +58,7 @@ interface AnnotationData {
   icons: IconAnnotation[];
   rectangles: RectAnnotation[];
   measurements: MeasurementAnnotation[];
+  thumbnailUri: string;
 }
 
 interface SelectedAnnotation {
@@ -153,7 +155,7 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
     initialPosition: null
   });
 
-  // Pan responder setup
+  const imageAnnotatorRef = useRef<View>(null); 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -540,12 +542,18 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
   // Save handler
   const handleSave = async () => {
     try {
+      const thumbnailUri = await captureRef(imageAnnotatorRef, { 
+        format: 'png',
+        quality: 1,
+      });
+      // console.log('Thumbnail URI:', thumbnailUri);
       const annotationData: AnnotationData = {
         paths,
         texts,
         icons,
         rectangles,
         measurements,
+        thumbnailUri,
       };
       await onSave(annotationData);
       setHasUnsavedChanges(false);
@@ -581,7 +589,7 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
 
   // Add handleDeletion function
   const handleDeletion = (point: Point) => {
-    console.log('Attempting deletion at point:', point);
+    // console.log('Attempting deletion at point:', point);
     
     // Save current state to undo stack before deletion
     saveToUndoStack();
@@ -734,6 +742,7 @@ export function ImageAnnotator({ imageUri, visible, onClose, onSave, initialAnno
 
         {/* Canvas */}
         <View 
+          ref={imageAnnotatorRef}
           style={styles.canvas}
           {...panResponder.panHandlers}
         >
